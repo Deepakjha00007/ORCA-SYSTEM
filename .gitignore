@@ -1,0 +1,33 @@
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Secrets & Environment Variables File
+.env
+.env.*
+
+# Python Bytecode & Caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Streamlit Local Configuration
+.streamlit/secrets.toml
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
+
+# Large Data Files (NetCDF / Datasets)
+*.nc
+*.hdf
+*.csv
+data/
+datasets/
+
+# IDE Configuration Files
+.vscode/
+.idea/

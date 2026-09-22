@@ -1,0 +1,8 @@
+streamlit
+xarray
+netCDF4
+pandas
+numpy
+pydeck
+google-genai
+python-dotenv
