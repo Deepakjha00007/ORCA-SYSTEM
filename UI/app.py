@@ -1,412 +1,354 @@
-import os
 import sys
-import streamlit as st
+import os
+import io
+import base64
+import requests
 import pandas as pd
-import numpy as np
 import pydeck as pdk
-from streamlit_folium import st_folium
-import folium
+import streamlit as st
+from pathlib import Path
+from dotenv import load_dotenv
 
-# Ensure project root is in path for services imports
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# Add project root directory to sys.path
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
 
-from services.isro_data_pipeline import load_ocean_data
+# Load local environment configurations (Ollama & Gateway)
+load_dotenv(ROOT_DIR / ".env")
 
-# ---------------------------------------------------------
-# Page Configuration
-# ---------------------------------------------------------
+# Import UI Components & Schemas
+from UI.components.audio_recorder import render_audio_recorder
+from tools.schemas import LanguageCode, PrimaryIntent, UrgencyLevel
+
+# Gateway & Local LLM Endpoint Configuration
+GATEWAY_URL = os.getenv("GATEWAY_URL", "http://localhost:8000")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
+
+# ==========================================
+# 1. PAGE CONFIGURATION & LIGHT THEME STYLING
+# ==========================================
+
 st.set_page_config(
-    page_title="ORCA: Marine Intelligence Platform",
+    page_title="ORCA: Marine Agentic Intelligence Platform",
     page_icon="🌊",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded"
 )
 
-# ---------------------------------------------------------
-# Professional High-Contrast Light Marine CSS Theme
-# ---------------------------------------------------------
+# High-contrast Light Theme CSS
 st.markdown("""
-    <style>
-    :root {
-        --bg-main: #F1F5F9;
-        --card-bg: #FFFFFF;
-        --text-dark: #0F172A;
-        --text-muted: #475569;
-        --brand-blue: #0284C7;
-        --brand-cyan: #06B6D4;
-        --border-color: #E2E8F0;
+<style>
+    /* Main Light Background */
+    .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+        background-color: #f8fafc !important;
+        color: #0f172a !important;
+    }
+    
+    /* Light Sidebar Styling */
+    section[data-testid="stSidebar"] {
+        background-color: #f1f5f9 !important;
+        border-right: 1px solid #cbd5e1 !important;
     }
 
-    .stApp {
-        background-color: var(--bg-main);
-        color: var(--text-dark);
+    /* Input Fields & Text Areas */
+    input, textarea, div[data-baseweb="select"] > div {
+        background-color: #ffffff !important;
+        color: #0f172a !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 6px !important;
+    }
+    
+    /* Typography Visibility & High Contrast */
+    label, .stTextInput label, .stNumberInput label, .stSelectbox label, h1, h2, h3, h4, p, span, li, div {
+        color: #0f172a !important;
     }
 
-    input, textarea, .stTextInput input, div[data-baseweb="input"] input {
-        color: #0F172A !important;
-        background-color: #FFFFFF !important;
-        border: 2px solid #0284C7 !important;
+    /* High-Contrast Chat Message Containers */
+    [data-testid="stChatMessage"] {
+        background-color: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 10px !important;
+        color: #0f172a !important;
+        margin-bottom: 12px !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+    }
+
+    /* Chat Text Markdown High Visibility Override */
+    [data-testid="stChatMessage"] p, 
+    [data-testid="stChatMessage"] li, 
+    [data-testid="stChatMessage"] span,
+    [data-testid="stChatMessage"] strong,
+    [data-testid="stChatMessage"] h1,
+    [data-testid="stChatMessage"] h2,
+    [data-testid="stChatMessage"] h3 {
+        color: #0f172a !important;
+        font-weight: 500 !important;
+    }
+
+    /* Fixed Bottom Chat Input Bar */
+    [data-testid="stChatInput"] {
+        background-color: #ffffff !important;
+        border: 1px solid #0284c7 !important;
         border-radius: 8px !important;
-        font-weight: 600 !important;
-        font-size: 1rem !important;
+        box-shadow: 0 2px 8px rgba(2, 132, 199, 0.15) !important;
+    }
+
+    [data-testid="stChatInput"] textarea {
+        color: #0f172a !important;
+        background-color: #ffffff !important;
+    }
+
+    [data-testid="stChatInput"] textarea::placeholder {
+        color: #64748b !important;
+    }
+
+    /* Metric Cards */
+    .metric-card {
+        background-color: #ffffff;
+        border-radius: 8px;
+        padding: 14px;
+        border: 1px solid #cbd5e1;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    /* Custom Ocean Blue Primary Buttons */
+    .stButton>button {
+        background-color: #0284c7 !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        border-radius: 6px !important;
+        border: none !important;
+        width: 100% !important;
         padding: 10px !important;
     }
-
-    div.stButton > button, div[data-testid="stFormSubmitButton"] > button {
-        background-color: #0284C7 !important;
-        color: #FFFFFF !important;
-        font-weight: 700 !important;
-        font-size: 1rem !important;
-        border-radius: 8px !important;
-        border: none !important;
-        padding: 10px 20px !important;
-        box-shadow: 0 4px 6px -1px rgba(2, 132, 199, 0.3) !important;
+    
+    .stButton>button:hover {
+        background-color: #0369a1 !important;
+        color: #ffffff !important;
     }
-    div.stButton > button:hover, div[data-testid="stFormSubmitButton"] > button:hover {
-        background-color: #0369A1 !important;
-        color: #FFFFFF !important;
-    }
-
-    .kpi-card-light {
-        background: #FFFFFF;
-        border: 1px solid #CBD5E1;
-        border-left: 5px solid #0284C7;
-        border-radius: 10px;
-        padding: 16px 20px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-        margin-bottom: 10px;
-    }
-    .kpi-title {
-        font-size: 0.82rem;
-        font-weight: 700;
-        color: #64748B;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-    .kpi-val {
-        font-size: 1.8rem;
-        font-weight: 800;
-        color: #0F172A;
-        margin: 4px 0;
-    }
-    .kpi-sub {
-        font-size: 0.78rem;
-        color: #0284C7;
-        font-weight: 600;
-    }
-
-    .main-header {
-        background: #FFFFFF;
-        padding: 18px 24px;
-        border-radius: 12px;
-        border: 1px solid #CBD5E1;
-        margin-bottom: 20px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-    }
-    .main-title {
-        font-size: 2rem;
-        font-weight: 900;
-        color: #0369A1;
-        margin: 0;
-    }
-    .main-sub {
-        font-size: 0.95rem;
-        color: #475569;
-        margin-top: 4px;
-    }
-
-    .stChatMessage {
-        background-color: #FFFFFF !important;
-        border: 1px solid #E2E8F0 !important;
-        border-radius: 10px !important;
-        color: #0F172A !important;
-        padding: 14px !important;
-    }
-    </style>
+</style>
 """, unsafe_allow_html=True)
 
-# ---------------------------------------------------------
-# Sidebar Navigation & Operational Parameters
-# ---------------------------------------------------------
-st.sidebar.title("🌊 ORCA Operations")
 
-selected_agent = st.sidebar.selectbox(
-    "Active Intelligence Agent",
-    [
-        "Agent 3A: Safety & Risk Analysis",
-        "Agent 3B: PFZ & Fishery Discovery",
-        "Agent 3C: Route & Fuel Optimization"
-    ]
-)
+# ==========================================
+# 2. SIDEBAR TELEMETRY & VESSEL PROFILE
+# ==========================================
 
-st.sidebar.divider()
-st.sidebar.subheader("📍 Coordinates Focus")
-target_lat = st.sidebar.number_input("Latitude (°N)", value=15.0000, step=0.1, format="%.4f")
-target_lon = st.sidebar.number_input("Longitude (°E)", value=72.0000, step=0.1, format="%.4f")
+with st.sidebar:
+    st.image("https://img.icons8.com/color/96/anchor.png", width=56)
+    st.title("ORCA Vessel Gateway")
+    st.caption("Offline-First Marine Safety & Intelligence System")
+    
+    st.divider()
+    
+    st.subheader("📍 Vessel GPS Telemetry")
+    user_id = st.text_input("Vessel Registration / ID", value="MH_MUMBAI_01")
+    vessel_lat = st.number_input("Latitude (°N)", value=18.92, format="%.4f")
+    vessel_lon = st.number_input("Longitude (°E)", value=72.83, format="%.4f")
+    
+    st.divider()
+    
+    st.subheader("🖥️ Local Engine Health")
+    
+    # Check local Gateway connectivity
+    try:
+        gw_check = requests.get(f"{GATEWAY_URL}/", timeout=1)
+        gateway_online = gw_check.status_code == 200
+    except Exception:
+        gateway_online = False
 
-st.sidebar.divider()
-st.sidebar.subheader("📡 Ingestion Pipeline")
-refresh_pipeline = st.sidebar.button("🔄 Sync Satellite NetCDF", use_container_width=True)
+    # Check local Ollama connectivity
+    try:
+        ollama_check = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=1)
+        ollama_online = ollama_check.status_code == 200
+    except Exception:
+        ollama_online = False
 
-# Load backend ocean data
-ocean_data = load_ocean_data(lat=target_lat, lon=target_lon)
-metrics = ocean_data["point_metrics"]
-grid_df = ocean_data["grid_df"]
-
-# ---------------------------------------------------------
-# Top Header Bar
-# ---------------------------------------------------------
-st.markdown("""
-    <div class="main-header">
-        <p class="main-title">ORCA: Ocean Intelligence Dashboard</p>
-        <p class="main-sub">Satellite Data Fusion System — ISRO Oceansat-3, NOAA OISST & Surface Velocity Fields</p>
-    </div>
-""", unsafe_allow_html=True)
-
-# ---------------------------------------------------------
-# High-Contrast KPI Cards Bar
-# ---------------------------------------------------------
-c1, c2, c3, c4 = st.columns(4)
-
-with c1:
-    sst_val = f"{metrics['sst']} °C" if metrics['sst'] is not None else "28.50 °C"
-    st.markdown(f"""
-        <div class="kpi-card-light">
-            <div class="kpi-title">Sea Surface Temp (SST)</div>
-            <div class="kpi-val">{sst_val}</div>
-            <div class="kpi-sub">NOAA OISST Stream</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-with c2:
-    curr_val = f"{metrics['current_speed']} m/s" if metrics['current_speed'] is not None else "0.45 m/s"
-    st.markdown(f"""
-        <div class="kpi-card-light">
-            <div class="kpi-title">Surface Velocity</div>
-            <div class="kpi-val">{curr_val}</div>
-            <div class="kpi-sub">Hourly Currents Field</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-with c3:
-    chl_val = f"{metrics['chlorophyll']} mg/m³" if metrics['chlorophyll'] is not None else "0.420 mg/m³"
-    st.markdown(f"""
-        <div class="kpi-card-light">
-            <div class="kpi-title">Chlorophyll-a Concentration</div>
-            <div class="kpi-val">{chl_val}</div>
-            <div class="kpi-sub">Oceansat-3 Optical</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-with c4:
-    pfz_count = len(grid_df[grid_df['pfz_score'] == "HIGH"])
-    st.markdown(f"""
-        <div class="kpi-card-light">
-            <div class="kpi-title">Potential Fishing Hotspots</div>
-            <div class="kpi-val">{pfz_count} Hotspots</div>
-            <div class="kpi-sub">High Fish Abundance Potential</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-st.write("")
-
-# ---------------------------------------------------------
-# Anti-Flicker & Multi-Layer Map Fragment
-# ---------------------------------------------------------
-@st.fragment
-def render_stabilized_folium_map(lat, lon, grid, sst):
-    m = folium.Map(
-        location=[lat, lon], 
-        zoom_start=9, 
-        max_zoom=19, 
-        tiles="OpenStreetMap"
-    )
-
-    folium.TileLayer(
-        tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        attr='Esri, Maxar, Earthstar Geographics',
-        name='Satellite Imagery',
-        max_zoom=19,
-        overlay=False
-    ).add_to(m)
-
-    folium.TileLayer(
-        tiles='https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}',
-        attr='Esri, GEBCO, NOAA, National Geographic',
-        name='Ocean Depth & Bathymetry',
-        max_zoom=13,
-        overlay=False
-    ).add_to(m)
-
-    folium.Marker(
-        [lat, lon],
-        popup=f"<b>Focus Point</b><br/>Lat: {lat:.4f}<br/>Lon: {lon:.4f}<br/>SST: {sst}",
-        tooltip="Target Position",
-        icon=folium.Icon(color="red", icon="info-sign")
-    ).add_to(m)
-
-    for idx, row in grid.head(25).iterrows():
-        color = "#EF4444" if row['pfz_score'] == "HIGH" else "#0284C7"
-        folium.CircleMarker(
-            location=[row['latitude'], row['longitude']],
-            radius=8,
-            color=color,
-            fill=True,
-            fill_color=color,
-            fill_opacity=0.6,
-            popup=f"""
-            <div style='font-family: sans-serif; font-size: 12px;'>
-                <b>Ocean Cell Telemetry</b><br/>
-                <b>Lat/Lon:</b> {row['latitude']:.4f}, {row['longitude']:.4f}<br/>
-                <b>SST:</b> {row['sst']} °C<br/>
-                <b>Current:</b> {row['current_speed']} m/s<br/>
-                <b>PFZ Score:</b> {row['pfz_score']}
-            </div>
-            """
-        ).add_to(m)
-
-    folium.LayerControl(position="topright").add_to(m)
-    st_folium(m, width="100%", height=550, returned_objects=[])
-
-# ---------------------------------------------------------
-# Navigation Workspace Tabs
-# ---------------------------------------------------------
-tab_map, tab_chat, tab_telemetry, tab_pipeline = st.tabs([
-    "🗺️ Interactive Ocean Map", 
-    "💬 Agent Communication Console", 
-    "📊 Grid Telemetry Table", 
-    "📁 Satellite Data Streams"
-])
-
-# --- TAB 1: INTERACTIVE DEEP OCEAN MAP ---
-with tab_map:
-    st.subheader("Deep Ocean Thermal & Velocity Map")
-    st.caption("Detailed ocean spatial grid with high-resolution street maps, bathymetric layers, coordinate overlays, and regional oceanographic metrics.")
-
-    map_type = st.radio("Select Map Renderer", ["Ocean GIS Tile Map (Folium)", "3D Spatial Grid (PyDeck)"], horizontal=True)
-
-    if map_type == "Ocean GIS Tile Map (Folium)":
-        render_stabilized_folium_map(target_lat, target_lon, grid_df, sst_val)
-    else:
-        layer_ocean_surface = pdk.Layer(
-            "HexagonLayer",
-            data=grid_df,
-            get_position=["longitude", "latitude"],
-            radius=15000,
-            elevation_scale=50,
-            elevation_range=[0, 1000],
-            pickable=True,
-            extruded=True,
-        )
-
-        layer_target_point = pdk.Layer(
-            "ScatterplotLayer",
-            data=pd.DataFrame([{"latitude": target_lat, "longitude": target_lon}]),
-            get_position=["longitude", "latitude"],
-            get_color="[239, 68, 68, 255]",
-            get_radius=20000,
-            pickable=True,
-        )
-
-        view_state = pdk.ViewState(
-            latitude=target_lat,
-            longitude=target_lon,
-            zoom=7,
-            pitch=45,
-            bearing=10
-        )
-
-        st.pydeck_chart(pdk.Deck(
-            layers=[layer_ocean_surface, layer_target_point],
-            initial_view_state=view_state,
-            tooltip={"html": "<b>Ocean Lat:</b> {latitude}<br/><b>Ocean Lon:</b> {longitude}<br/><b>SST:</b> {sst}°C"}
-        ))
-
-# --- TAB 2: AGENT CONVERSATIONAL INTERFACE ---
-with tab_chat:
-    st.subheader(f"Communication Channel: {selected_agent}")
-
-    # Reset greeting dynamically if active agent selection changes
-    if "current_agent" not in st.session_state or st.session_state.current_agent != selected_agent:
-        st.session_state.current_agent = selected_agent
-        st.session_state.messages = [
-            {
-                "role": "assistant",
-                "content": f"Greeting Captain. I am **{selected_agent}**. I am monitoring Lat `{target_lat}°N`, Lon `{target_lon}°E`. How can I assist your operation?"
-            }
-        ]
-
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
-    st.write("---")
-
-    with st.form(key="chat_input_form", clear_on_submit=True):
-        col_input, col_btn = st.columns([5, 1])
-        with col_input:
-            user_text = st.text_input(
-                "Query Prompt",
-                placeholder="Ask about weather hazards, potential fishing zones, or optimized navigation routes...",
-                label_visibility="collapsed"
-            )
-        with col_btn:
-            submit_query = st.form_submit_button("Send Query", use_container_width=True)
-
-    if submit_query and user_text.strip():
-        st.session_state.messages.append({"role": "user", "content": user_text})
-        query_lower = user_text.lower()
-
-        # ---------------------------------------------------------
-        # AGENT 3A: SAFETY & RISK ANALYSIS
-        # ---------------------------------------------------------
-        if "3A" in selected_agent:
-            if any(w in query_lower for w in ["hazard", "squall", "cyclone", "warning", "risk", "wave", "wind"]):
-                ans = f"**[Agent 3A Safety Alert]**\n\nAt coordinates `{target_lat}°N, {target_lon}°E`:\n- **Current Speed**: `{metrics['current_speed']} m/s` (Normal Hydrodynamic Range)\n- **Surface Temperature**: `{metrics['sst']}°C`\n- **Safety Status**: No squall or cyclonic thermal anomaly detected within 50 nautical miles. Navigation safe."
-            else:
-                ans = f"**[Agent 3A Safety Response]**\n\nI have evaluated safety parameters for query **'{user_text}'**. Sea conditions at `{target_lat}°N, {target_lon}°E` show stable current velocity without structural hazard risks."
-
-        # ---------------------------------------------------------
-        # AGENT 3B: PFZ & FISHERY DISCOVERY
-        # ---------------------------------------------------------
-        elif "3B" in selected_agent:
-            if any(w in query_lower for w in ["chlorophyll", "hotspot", "catch", "pfz", "yield", "density"]):
-                ans = f"**[Agent 3B PFZ Intelligence]**\n\nBased on Oceansat-3 chlorophyll data and NOAA SST gradients:\n- **Thermal Front Alignment**: Active near Lat `{target_lat + 0.05:.2f}°N`, Lon `{target_lon + 0.05:.2f}°E`\n- **Chlorophyll Density**: `{metrics['chlorophyll']} mg/m³`\n- **Recommendation**: High fish aggregation potential detected. Deploy gear along the SST boundary for optimal yield."
-            else:
-                ans = f"**[Agent 3B Fishery Response]**\n\nFor query **'{user_text}'**: The current ocean point `{target_lat}°N, {target_lon}°E` has {pfz_count} high-potential PFZ hotspots within the operational boundary."
-
-        # ---------------------------------------------------------
-        # AGENT 3C: ROUTE & FUEL OPTIMIZATION
-        # ---------------------------------------------------------
-        else:
-            if any(w in query_lower for w in ["fuel", "efficiency", "drift", "vector", "speed", "knot"]):
-                ans = f"**[Agent 3C Route Optimization]**\n\nAnalyzing hydrodynamic current vectors at `{target_lat}°N, {target_lon}°E`:\n- **Surface Drift Speed**: `{metrics['current_speed']} m/s`\n- **Fuel Efficiency Strategy**: Aligning course vector 210° Southwest utilizes current drift, lowering fuel consumption by approximately **12.4%**."
-            else:
-                ans = f"**[Agent 3C Routing Response]**\n\nRe-calculating navigation profile for query **'{user_text}'**. Following recommended vector paths around `{target_lat}°N, {target_lon}°E` ensures minimal current resistance."
-
-        st.session_state.messages.append({"role": "assistant", "content": ans})
-        st.rerun()
-
-# --- TAB 3: SPATIAL GRID DATA TABLE ---
-with tab_telemetry:
-    st.subheader("Ocean Grid Telemetry")
-    st.dataframe(grid_df, use_container_width=True, height=450)
-
-# --- TAB 4: ACTIVE PIPELINE SOURCES ---
-with tab_pipeline:
-    st.subheader("Active NetCDF Stream Pipeline")
-    if metrics["sources"]:
-        for src in metrics["sources"]:
-            st.success(f"✔️ Connected Stream: {src}")
-    else:
-        st.info("Operating on baseline hydrodynamic model outputs.")
+    col_h1, col_h2 = st.columns(2)
+    col_h1.metric("FastAPI Gateway", "Online" if gateway_online else "Offline", delta="Port 8000" if gateway_online else "ERR")
+    col_h2.metric("Ollama LLM", "Active" if ollama_online else "Offline", delta="Local 11434" if ollama_online else "ERR")
 
     st.divider()
-    st.markdown("""
-        **Pipeline Data Integrations:**
-        * `OISST DATASET.nc` — NOAA High-Resolution Sea Surface Temperature
-        * `Oceansat-3.nc` — ISRO Ocean Color & Chlorophyll-a
-        * `temperature_daily.nc` — Daily Hydrodynamic Thermal Series
-        * `surface_current_hourly.nc` — High-Frequency Surface Drift ($u, v$)
-        * `surface_currents_daily.nc` — Regional Velocity Patterns
-    """)
+    st.info("💡 **Local Ollama Mode Active**: All LLM processing, translation, and agent orchestration run 100% on-device/offline.")
+
+
+# ==========================================
+# 3. DASHBOARD MAIN HEADER & SPATIAL MAP
+# ==========================================
+
+st.title("🌊 ORCA Ocean Intelligence Platform")
+st.markdown("Real-Time Multilingual Marine Navigation, Weather, and Fishery Intelligence Engine")
+
+# Map Visualization
+map_df = pd.DataFrame({
+    "lat": [vessel_lat, vessel_lat + 0.03, vessel_lat - 0.04, vessel_lat + 0.08],
+    "lon": [vessel_lon, vessel_lon - 0.03, vessel_lon + 0.02, vessel_lon - 0.08],
+    "label": [
+        "Your Vessel Location", 
+        "PFZ Hotspot #1 (High Chlorophyll)", 
+        "PFZ Hotspot #2 (Thermal Front)", 
+        "Hazard/IMBL Warning Boundary Zone"
+    ]
+})
+
+deck_layer = pdk.Layer(
+    "ScatterplotLayer",
+    data=map_df,
+    get_position="[lon, lat]",
+    get_fill_color="[2, 132, 199, 255]",
+    get_radius=150,
+    radius_min_pixels=6,
+    radius_max_pixels=10,
+    pickable=True
+)
+
+view_state = pdk.ViewState(
+    latitude=vessel_lat,
+    longitude=vessel_lon,
+    zoom=9.5,
+    pitch=0
+)
+
+col_map, col_env = st.columns([2.2, 1])
+
+with col_map:
+    st.pydeck_chart(
+        pdk.Deck(
+            layers=[deck_layer],
+            initial_view_state=view_state,
+            tooltip={"text": "{label}\nLat: {lat}, Lon: {lon}"}
+        )
+    )
+
+with col_env:
+    st.markdown("### 🛰️ Live Ocean Metrics")
+    
+    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+    st.metric("Sea Surface Temp (SST)", "28.5 °C", delta="-0.2 °C (Front Detected)")
+    st.markdown('</div><br>', unsafe_allow_html=True)
+    
+    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+    st.metric("Chlorophyll-a Conc.", "2.14 mg/m³", delta="+0.41 mg/m³ (High Density)")
+    st.markdown('</div><br>', unsafe_allow_html=True)
+    
+    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+    st.metric("Surface Drift Speed", "1.4 Knots", delta="240° SW Drift Vector")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+st.divider()
+
+
+# ==========================================
+# 4. MULTILINGUAL VOICE & CHAT INTERFACE
+# ==========================================
+
+st.subheader("🎙️ Multilingual Indic Advisory Request")
+
+# Render Voice Recording Widget
+audio_bytes, selected_lang = render_audio_recorder()
+
+# Helper Function to Process API Payload
+def process_query_payload(text_input, audio_data=None):
+    payload = {
+        "user_id": user_id,
+        "query_text": text_input if text_input else "Voice Query Input",
+        "latitude": vessel_lat,
+        "longitude": vessel_lon,
+        "language": selected_lang.value if hasattr(selected_lang, "value") else str(selected_lang),
+        "raw_audio_base64": base64.b64encode(audio_data).decode("utf-8") if audio_data else None
+    }
+    
+    try:
+        response = requests.post(f"{GATEWAY_URL}/query", json=payload, timeout=180)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.error(f"Gateway Error [{response.status_code}]: {response.text}")
+            return None
+    except requests.exceptions.ConnectionError:
+        st.warning("⚠️ Could not connect to local ORCA Gateway. Ensure `uvicorn main:app --reload` is running on port 8000.")
+        return None
+    except requests.exceptions.Timeout:
+        st.error("⏰ Request timed out waiting for local multi-agent graph execution.")
+        return None
+
+# Process Voice Input Button
+if st.button("🚀 Process Voice Input"):
+    if not audio_bytes:
+        st.warning("⚠️ Please record voice audio before clicking this button.")
+    else:
+        with st.spinner("⚡ Processing audio advisory query..."):
+            res_data = process_query_payload("Voice Advisory Query", audio_data=audio_bytes)
+            if res_data:
+                is_emergency = res_data.get("is_emergency") or res_data.get("urgency") == UrgencyLevel.CRITICAL.value
+                localized = res_data.get("localized_advisory", "")
+                english = res_data.get("english_advisory", "")
+                intent = res_data.get("intent", "ADVISORY")
+                
+                advisory_text = localized if localized else english
+                reply_text = f"🚨 **CRITICAL MARITIME SAFETY ALERT**\n\n{advisory_text}" if is_emergency else f"📢 **Voice Advisory Response ({intent})**\n\n{advisory_text}"
+
+                st.session_state.messages.append({"role": "user", "content": "🎙️ [Voice Input Query Recorded]"})
+                st.session_state.messages.append({
+                    "role": "assistant", 
+                    "content": reply_text,
+                    "audio_base64": res_data.get("audio_output_base64")
+                })
+
+st.divider()
+st.subheader("💬 Interactive Advisory Chat")
+
+# Initialize Chat Message History in Session State
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# Render Chat History ONCE
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+        if msg.get("audio_base64"):
+            st.audio(base64.b64decode(msg["audio_base64"]), format="audio/wav")
+
+# Single Chat Input Block
+if chat_input := st.chat_input("Ask ORCA about weather, fishing zones, or navigation..."):
+    # 1. Store user prompt
+    st.session_state.messages.append({"role": "user", "content": chat_input})
+    
+    # 2. Render user prompt immediately
+    with st.chat_message("user"):
+        st.markdown(chat_input)
+
+    # 3. Request assistant output & render ONCE
+    with st.chat_message("assistant"):
+        with st.spinner("⚡ Executing local multi-agent workflow..."):
+            res_data = process_query_payload(chat_input, audio_data=None)
+            
+            if res_data:
+                is_emergency = res_data.get("is_emergency") or res_data.get("urgency") == UrgencyLevel.CRITICAL.value
+                localized = res_data.get("localized_advisory", "")
+                english = res_data.get("english_advisory", "")
+                intent = res_data.get("intent", "ADVISORY")
+                
+                # Deduplicate response text if backend concatenated it
+                advisory_text = localized if localized else english
+                if advisory_text.count("Commercial Fishing Dispatch Report") > 1:
+                    advisory_text = advisory_text.split("Commercial Fishing Dispatch Report")[-1]
+                    advisory_text = "Commercial Fishing Dispatch Report" + advisory_text
+
+                reply_text = f"🚨 **CRITICAL MARITIME SAFETY ALERT**\n\n{advisory_text}" if is_emergency else f"📢 **Local Advisory Response ({intent})**\n\n{advisory_text}"
+
+                # Render output directly inside assistant block
+                st.markdown(reply_text)
+                
+                if res_data.get("audio_output_base64"):
+                    audio_out = base64.b64decode(res_data["audio_output_base64"])
+                    st.audio(audio_out, format="audio/wav")
+
+                # Store response in session state without rerun
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": reply_text,
+                    "audio_base64": res_data.get("audio_output_base64")
+                })

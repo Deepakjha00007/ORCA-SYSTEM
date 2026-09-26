@@ -1,33 +1,65 @@
-# Virtual Environments
-venv/
-.venv/
-env/
-ENV/
-
-# Secrets & Environment Variables File
+# ==========================================
+# 1. Environment & API Secrets (CRITICAL)
+# ==========================================
 .env
 .env.*
+*.env
+!.env.example
 
-# Python Bytecode & Caches
+# ==========================================
+# 2. Virtual Environments
+# ==========================================
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ==========================================
+# 3. Python Compiled / Cache Files
+# ==========================================
 __pycache__/
 *.py[cod]
 *$py.class
-.pytest_cache/
+*.so
 
-# Streamlit Local Configuration
-.streamlit/secrets.toml
+# ==========================================
+# 4. Large Datasets & Media (NetCDF / Audio)
+# ==========================================
+# Heavy NetCDF oceanographic files in /data
+data/*.nc
+*.nc
 
-# OS Generated Files
+# Audio recordings / temporary voice payloads
+*.wav
+*.mp3
+*.m4a
+*.ogg
+
+# ==========================================
+# 5. Local Vector Databases & Analytics DBs
+# ==========================================
+# ChromaDB persistence folder in core_db
+core_db/chroma_db/
+chroma_db/
+*.chroma
+
+# Local DuckDB databases & logs
+*.duckdb
+*.duckdb.wal
+
+# ==========================================
+# 6. IDEs & OS System Files
+# ==========================================
+.vscode/
+.idea/
+*.swp
+*.swo
 .DS_Store
 Thumbs.db
 
-# Large Data Files (NetCDF / Datasets)
-*.nc
-*.hdf
-*.csv
-data/
-datasets/
-
-# IDE Configuration Files
-.vscode/
-.idea/
+# ==========================================
+# 7. Streamlit & Testing Logs
+# ==========================================
+.streamlit/secrets.toml
+.pytest_cache/
